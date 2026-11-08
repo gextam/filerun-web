@@ -40,6 +40,7 @@ final class Shell
 <style>:root{--accent:' . Http::escape($accent) . '}</style>
 ' . ($customCss !== '' ? '<style id="custom-css">' . str_replace('</style', '<\/style', $customCss) . '</style>' : '') . '
 <script>window.FR_BOOT=' . $json . ';</script>
+<script type="importmap">' . self::importMap() . '</script>
 </head>
 <body>
 <div id="app"><div class="boot"><div class="boot-spinner"></div></div></div>
@@ -48,6 +49,21 @@ final class Shell
 </body>
 </html>';
         Http::html($html);
+    }
+
+    /**
+     * Import map that points every ES module at a versioned URL, so that
+     * imports written as "./files.js" inside the scripts are re-fetched after
+     * each deploy instead of being served from the browser cache.
+     */
+    private static function importMap(): string
+    {
+        $imports = [];
+        foreach (glob(FR_ROOT_DIR . '/assets/js/*.js') ?: [] as $f) {
+            $name = basename($f);
+            $imports[FR_ASSET_BASE . '/assets/js/' . $name] = fr_asset('js/' . $name);
+        }
+        return Util::json(['imports' => $imports]);
     }
 
     /** Plain error page used before the application can boot (no DB, not installed...). */

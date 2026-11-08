@@ -31,9 +31,17 @@ DirectoryIndex index.php
 
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
-    <FilesMatch "\.(css|js|mjs|svg|png|jpg|webp|woff2?)$">
-        Header set Cache-Control "public, max-age=604800, immutable"
+    # Application scripts and styles are revalidated on every load (their URLs carry a version
+    # that changes with each deploy); images, fonts and vendored libraries may be cached for a week.
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "no-cache"
     </FilesMatch>
+    <FilesMatch "\.(mjs|svg|png|jpg|webp|woff2?)$">
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+    <If "%{REQUEST_URI} =~ m#/assets/vendor/#">
+        Header set Cache-Control "public, max-age=604800"
+    </If>
 </IfModule>
 
 <IfModule mod_deflate.c>

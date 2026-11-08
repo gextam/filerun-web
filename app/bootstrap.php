@@ -7,7 +7,7 @@
  */
 declare(strict_types=1);
 
-define('FR_VERSION', '1.0.0');
+define('FR_VERSION', '1.1.0');
 define('FR_APP_DIR', __DIR__);
 define('FR_ROOT_DIR', dirname(__DIR__));
 define('FR_START', microtime(true));
@@ -101,10 +101,23 @@ function fr_url(string $path = '/'): string
     return FR_BASE_PATH . '/' . ltrim($path, '/');
 }
 
-/** Build the URL of a static asset, cache-busted with the application version. */
+/** Version string for static assets: changes whenever a script or stylesheet is deployed. */
+function fr_asset_version(): string
+{
+    static $v = null;
+    if ($v !== null) return $v;
+    $latest = 0;
+    foreach (array_merge(glob(FR_ROOT_DIR . '/assets/js/*.js') ?: [], glob(FR_ROOT_DIR . '/assets/css/*.css') ?: []) as $f) {
+        $m = @filemtime($f);
+        if ($m && $m > $latest) $latest = $m;
+    }
+    return $v = FR_VERSION . '.' . base_convert((string) $latest, 10, 36);
+}
+
+/** Build the URL of a static asset, cache-busted with the asset version. */
 function fr_asset(string $path): string
 {
-    return FR_ASSET_BASE . '/assets/' . ltrim($path, '/') . '?v=' . FR_VERSION;
+    return FR_ASSET_BASE . '/assets/' . ltrim($path, '/') . '?v=' . fr_asset_version();
 }
 
 /** Absolute public URL of the installation (https://host/base). */
