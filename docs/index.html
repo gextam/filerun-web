@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileRun Web – self-hosted file sharing in plain PHP</title>
+<meta name="description" content="FileRun Web is a self-hosted file sharing application: previews, versions, sharing with roles, public links, WebDAV, passkeys, audit log. Plain PHP + MySQL, no build step.">
+<meta property="og:title" content="FileRun Web – self-hosted file sharing">
+<meta property="og:description" content="Your files, on your own server. Sharing, links, versions, previews, WebDAV and a full audit trail.">
+<meta property="og:image" content="https://gextam.github.io/filerun-web/screenshots/02-files-list.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Cpath d='M14 22a4 4 0 0 1 4-4h10l5 5h17a4 4 0 0 1 4 4v19a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root { --accent: #2563eb; --bg: #0b1020; --panel: #121a2e; --text: #e6e9f2; --muted: #9aa3b8; --border: #223050; }
+  @media (prefers-color-scheme: light) { :root { --bg: #f6f7fb; --panel: #ffffff; --text: #111827; --muted: #5b6475; --border: #e5e7eb; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.55; }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 72px 0 40px; text-align: center; background: radial-gradient(900px 400px at 50% -10%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 70%); }
+  .logo { width: 72px; height: 72px; border-radius: 18px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 18px; }
+  h1 { font-size: 44px; margin: 0 0 10px; letter-spacing: -.02em; }
+  .tag { font-size: 20px; color: var(--muted); max-width: 720px; margin: 0 auto 26px; }
+  .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .hero { margin: 36px auto 0; max-width: 1000px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 30px 80px -30px rgba(0,0,0,.6); }
+  .hero img { width: 100%; display: block; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 14px; }
+  section { padding: 56px 0; }
+  h2 { font-size: 28px; margin: 0 0 24px; letter-spacing: -.01em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .shot { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .shot img { width: 100%; display: block; aspect-ratio: 16/10; object-fit: cover; object-position: top; }
+  .shot figcaption { padding: 12px 16px; font-size: 14px; color: var(--muted); }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; overflow: auto; font-size: 13.5px; }
+  ol { padding-left: 22px; } ol li { margin: 8px 0; }
+  footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; text-align: center; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></div>
+    <h1>FileRun Web</h1>
+    <p class="tag">Like Google Drive, but on your own server. Sharing with roles, public links and file requests, versions, previews for everything, WebDAV, passkeys and a complete audit trail — in plain PHP and MySQL.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/gextam/filerun-web">View on GitHub</a>
+      <a class="btn" href="https://github.com/gextam/filerun-web#-installation">Install in 5 minutes</a>
+      <a class="btn" href="https://github.com/gextam/filerun-web#-user-guide">User guide</a>
+    </div>
+    <figure class="hero"><img src="screenshots/02-files-list.png" alt="FileRun Web file browser"></figure>
+    <p class="note">FileRun is a trademark of FileRun Lda. This is an independent re-implementation and is not affiliated with or endorsed by FileRun.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Everything your team does with files</h2>
+    <div class="grid">
+      <div class="card"><h3>Share with roles</h3><p>Seven roles from Viewer to Content manager, groups, guest accounts created from an e-mail address, "Shared with me" without copying anything.</p></div>
+      <div class="card"><h3>Public links &amp; file requests</h3><p>Passwords, expiry dates, download limits, terms to accept, upload-only links, QR codes, one switch to turn every link off.</p></div>
+      <div class="card"><h3>Preview almost anything</h3><p>Images, video, audio, PDF, Markdown, code, CSV/XLSX, DOCX, fonts, archives — plus a code editor and an image editor.</p></div>
+      <div class="card"><h3>Nothing gets lost</h3><p>Versions on every overwrite, a trash with retention, file locks, and an activity log that remembers who did what, from where, with which program.</p></div>
+      <div class="card"><h3>Uploads without limits</h3><p>Resumable chunked uploads, folder drops, clipboard paste, folder sync that skips unchanged files.</p></div>
+      <div class="card"><h3>Reach it from anywhere</h3><p>WebDAV with per-device app passwords, a JSON API with an OpenAPI description, an installable web app for phones.</p></div>
+      <div class="card"><h3>Secure by default</h3><p>Argon2id, two-step verification with e-mailed codes on by default, authenticator apps, passkeys, OpenID Connect, IP rules, session control.</p></div>
+      <div class="card"><h3>Runs anywhere PHP runs</h3><p>Shared hosting, cPanel, a VPS or a NAS. Apache or Nginx, MySQL or MariaDB. No framework, no build step, no vendor lock-in: files stay normal files.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Screenshots</h2>
+    <div class="shots">
+      <figure class="shot"><img src="screenshots/03-files-grid.png" alt="Grid view"><figcaption>Grid view with thumbnails</figcaption></figure>
+      <figure class="shot"><img src="screenshots/06-preview.png" alt="Viewer"><figcaption>The viewer</figcaption></figure>
+      <figure class="shot"><img src="screenshots/07-share-dialog.png" alt="Share dialog"><figcaption>Sharing with people and groups</figcaption></figure>
+      <figure class="shot"><img src="screenshots/08-link-dialog.png" alt="Link dialog"><figcaption>Public links with every option</figcaption></figure>
+      <figure class="shot"><img src="screenshots/05-details-panel.png" alt="Details panel"><figcaption>Details, metadata, comments, versions</figcaption></figure>
+      <figure class="shot"><img src="screenshots/11-account-security.png" alt="Security settings"><figcaption>Two-step verification and passkeys</figcaption></figure>
+      <figure class="shot"><img src="screenshots/14-admin-users.png" alt="User management"><figcaption>Control panel: users</figcaption></figure>
+      <figure class="shot"><img src="screenshots/16-admin-activity.png" alt="Activity log"><figcaption>The audit trail</figcaption></figure>
+      <figure class="shot"><img src="screenshots/17-dark-mode.png" alt="Dark mode"><figcaption>Dark theme</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Install</h2>
+    <ol>
+      <li>Upload the repository to your web server (document root or a sub folder) and create a MySQL database.</li>
+      <li>Open the site: the installer asks for the database, a data folder outside the web root and the first administrator.</li>
+      <li>Add the cron job it prints, open <em>Control panel → Settings</em> to configure e-mail, and invite your users.</li>
+    </ol>
+<pre>git clone https://github.com/gextam/filerun-web.git
+php bin/install.php --db-name=filerun --db-user=filerun --db-pass=secret \
+  --admin-user=admin --admin-pass='Str0ngPass!' --data-dir=/var/filerun-data \
+  --public-url=https://files.example.com</pre>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">MIT licensed · <a href="https://github.com/gextam/filerun-web">github.com/gextam/filerun-web</a></div>
+</footer>
+</body>
+</html>

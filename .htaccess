@@ -1,0 +1,49 @@
+# FileRun Web – Apache configuration (works at the domain root or in a sub folder)
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+# Private files
+<FilesMatch "^(config\.php|config\.sample\.php|\.gitignore|\.user\.ini|composer\.(json|lock)|package\.json)$">
+    Require all denied
+</FilesMatch>
+
+# Pass the Authorization header through to PHP (needed by WebDAV / API tokens behind CGI/FPM setups)
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Always use HTTPS (remove these three lines for plain-HTTP test setups)
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:|$) [NC]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+    # Application routes → front controller (real files and folders are served directly)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(api|dav|s|open|setup|manifest\.webmanifest|robots\.txt)(/.*)?$ index.php [QSA,L]
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    <FilesMatch "\.(css|js|mjs|svg|png|jpg|webp|woff2?)$">
+        Header set Cache-Control "public, max-age=604800, immutable"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+
+# Larger request bodies for uploads when PHP runs as an Apache module
+<IfModule mod_php.c>
+    php_value upload_max_filesize 64M
+    php_value post_max_size 64M
+    php_value memory_limit 256M
+    php_value max_execution_time 0
+</IfModule>
