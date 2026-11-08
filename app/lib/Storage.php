@@ -447,6 +447,14 @@ final class Storage
                 fr_log('exif failed: ' . $e->getMessage(), 'warn');
             }
         }
+        if (in_array(Util::kind($ctx->rel), ['audio', 'video'], true)) {
+            try {
+                $info = Media::probe($ctx->abs);
+                if ($info) Meta::set($ctx->ownerId, $ctx->rel, ['exif' => $info], false, $actor['id'] ?? null);
+            } catch (Throwable $e) {
+                fr_log('media probe failed: ' . $e->getMessage(), 'warn');
+            }
+        }
         Indexer::schedule($ctx->ownerId, $ctx->rel, $ctx->abs);
         $source = $o['source'] ?? 'upload';
         $action = $source === 'edit' ? 'edit' : ($source === 'create' ? 'create_file' : 'upload');

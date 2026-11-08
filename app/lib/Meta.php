@@ -12,7 +12,7 @@ final class Meta
     public const LABELS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray'];
 
     /** Tables that carry (owner_id, path, path_hash) columns and must follow renames. */
-    private const PATH_TABLES = ['file_meta', 'file_text', 'file_tags', 'stars', 'comments', 'versions', 'follows', 'shares', 'weblinks', 'dav_locks', 'file_index'];
+    private const PATH_TABLES = ['file_meta', 'file_text', 'file_tags', 'stars', 'comments', 'versions', 'follows', 'shares', 'weblinks', 'dav_locks', 'file_index', 'collection_items'];
 
     public static function get(int $ownerId, string $path): ?array
     {

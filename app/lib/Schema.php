@@ -7,7 +7,7 @@ declare(strict_types=1);
  */
 final class Schema
 {
-    public const VERSION = 1;
+    public const VERSION = 2;
 
     public static function statements(): array
     {
@@ -410,6 +410,29 @@ final class Schema
                 `owner_info` TEXT NULL,
                 `expires_at` DATETIME NOT NULL,
                 `created_at` DATETIME NOT NULL,
+                KEY `ix_file` (`owner_id`,`path_hash`)
+            ) $o",
+
+            "CREATE TABLE IF NOT EXISTS {{collections}} (
+                `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `user_id` INT UNSIGNED NOT NULL,
+                `name` VARCHAR(150) NOT NULL,
+                `description` VARCHAR(500) NOT NULL DEFAULT '',
+                `color` VARCHAR(20) NULL,
+                `sort_order` INT NOT NULL DEFAULT 0,
+                `created_at` DATETIME NOT NULL,
+                `updated_at` DATETIME NULL,
+                KEY `ix_user` (`user_id`)
+            ) $o",
+
+            "CREATE TABLE IF NOT EXISTS {{collection_items}} (
+                `collection_id` INT UNSIGNED NOT NULL,
+                `owner_id` INT UNSIGNED NOT NULL,
+                `path_hash` CHAR(40) NOT NULL,
+                `path` VARCHAR(2000) NOT NULL,
+                `is_dir` TINYINT(1) NOT NULL DEFAULT 0,
+                `added_at` DATETIME NOT NULL,
+                PRIMARY KEY (`collection_id`,`owner_id`,`path_hash`),
                 KEY `ix_file` (`owner_id`,`path_hash`)
             ) $o",
 

@@ -59,6 +59,19 @@ if (class_exists('ZipArchive')) {
     $zip->addFromString('2025/readme.md', "# 2025 archive\n");
     $zip->close();
 }
+// Audio and video samples (generated with ffmpeg when it is available) so the Media section has something to show.
+if ($ffmpeg = Util::bin('ffmpeg')) {
+    @mkdir($home . '/Music', 0750, true);
+    @mkdir($home . '/Videos', 0750, true);
+    $tracks = [['Music/Morning light.mp3', 'Aurora Fields', 'Daybreak', 'Morning light', 440], ['Music/Night drive.mp3', 'Aurora Fields', 'Daybreak', 'Night drive', 330], ['Music/Harbour.mp3', 'The Quiet Coast', 'Tides', 'Harbour', 262]];
+    foreach ($tracks as [$rel, $artist, $album, $title, $freq]) {
+        if (is_file($home . '/' . $rel)) continue;
+        Util::run([$ffmpeg, '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=' . $freq . ':duration=4', '-metadata', 'artist=' . $artist, '-metadata', 'album=' . $album, '-metadata', 'title=' . $title, '-metadata', 'date=2026', '-codec:a', 'libmp3lame', '-q:a', '6', $home . '/' . $rel], 60);
+    }
+    if (!is_file($home . '/Videos/Test pattern.mp4')) {
+        Util::run([$ffmpeg, '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=640x360:rate=12', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=4', '-shortest', '-pix_fmt', 'yuv420p', '-metadata', 'title=Test pattern', $home . '/Videos/Test pattern.mp4'], 90);
+    }
+}
 Index::rescan($u);
 Indexer::indexTree((int) $u['id'], '', 120);
 echo "Seeded demo content for {$u['username']} in $home\n";

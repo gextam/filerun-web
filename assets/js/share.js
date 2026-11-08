@@ -202,29 +202,32 @@ export async function sharedWithMe(main) {
 }
 
 // ---------------------------------------------------------------------------
-// "My links" page
+// "Sharing" pages: with people / public links / file requests
 // ---------------------------------------------------------------------------
-export async function myLinks(main) {
-  App.title(t('My links'));
-  replace(main, h('div.view', h('div.toolbar', h('div.crumbs', h('span.crumb.current', icon('link'), ' ', t('My links')))), h('div.content.page', spinner())));
-  const content = main.querySelector('.content');
+export function myLinks(main) { return sharing(main, 'links'); }
+
+export async function sharing(main, tab = 'people') {
+  const titles = { people: t('Shared with people'), links: t('Public links'), requests: t('File requests') };
+  App.title(titles[tab] || t('Sharing'));
+  const tb = tabs([{ id: 'people', label: t('With people'), icon: 'user-plus' }, { id: 'links', label: t('Public links'), icon: 'link' }, { id: 'requests', label: t('File requests'), icon: 'inbox' }], tab, id => App.navigate('#/sharing/' + id));
+  replace(main, h('div.view', h('div.toolbar', h('div.crumbs', h('span.crumb.current', icon('share'), ' ', t('Sharing')))), h('div.content.page', tb.el, h('div.sharing-body', spinner()))));
+  const content = main.querySelector('.sharing-body');
   const paint = async () => {
     try {
       const [res, shared] = await Promise.all([api.get('shares/links_mine'), api.get('shares/by_me')]);
-      const links = res.items;
-      const parts = [];
-      parts.push(h('h3', t('Public links')));
-      if (!links.length) parts.push(emptyState('link', t('You have not created any links'), t('Select a file or folder and choose "Get link" to share it with people outside.')));
-      else parts.push(h('table.table', h('thead', h('tr', h('th', t('Item')), h('th', t('Role')), h('th', t('Protection')), h('th', t('Expires')), h('th', t('Downloads')), h('th', t('Created')), h('th', ''))),
+      const links = res.items.filter(l => tab === 'requests' ? l.role === 'uploader' : l.role !== 'uploader');
+      if (tab === 'people') {
+        if (!shared.shares.length) return replace(content, emptyState('user-plus', t('You have not shared anything with other accounts'), t('Select a file or folder and choose "Share…" to give people access with a role.')));
+        replace(content, h('table.table', h('thead', h('tr', h('th', t('Item')), h('th', t('With')), h('th', t('Role')), h('th', t('Since')), h('th', ''))), h('tbody', shared.shares.map(s => h('tr', h('td', h('a.link', { href: App.filesHash('/' + s.path.split('/').slice(0, -1).join('/')) }, icon(s.is_dir ? 'folder' : 'file'), ' ', s.path.split('/').pop())), h('td', s.target_name, s.target_type === 'group' ? h('span.tag-chip', t('group')) : null, s.target_is_guest ? h('span.tag-chip', t('guest')) : null), h('td', roleSelect(Object.keys(App.features.roles || {}).filter(r => r !== 'owner'), s.role, async r => { await api.post('shares/update', { id: s.id, role: r }); toast(t('Role updated'), 'success', 1500); })), h('td', fmtDateShort(s.created_at)), h('td.actions', h('button.icon-btn', { title: t('Remove'), onClick: async () => { await api.post('shares/delete', { id: s.id }); paint(); import('./app.js').then(m => m.refreshSidebar()); } }, icon('x'))))))));
+        return;
+      }
+      if (!links.length) return replace(content, emptyState(tab === 'requests' ? 'inbox' : 'link', tab === 'requests' ? t('No file requests yet') : t('You have not created any links'), tab === 'requests' ? t('Create a link with the Uploader role on a folder: people can add files to it without seeing what is already there.') : t('Select a file or folder and choose "Get link" to share it with people outside.')));
+      replace(content, h('table.table', h('thead', h('tr', h('th', t('Item')), h('th', tab === 'requests' ? t('Uploads') : t('Role')), h('th', t('Protection')), h('th', t('Expires')), h('th', t('Downloads')), h('th', t('Created')), h('th', ''))),
         h('tbody', links.map(l => h('tr', { class: l.usable ? '' : 'muted' },
           h('td', h('a.link', { href: App.filesHash('/' + l.path.split('/').slice(0, -1).join('/')) }, icon(l.is_dir ? 'folder' : 'file'), ' ', l.title && l.title !== l.name ? l.title + ' (' + l.name + ')' : l.name), !l.usable ? h('div.hint', l.usable_reason) : null),
-          h('td', l.role_label), h('td', [l.has_password ? t('password') : null, l.terms ? t('terms') : null, l.allow_preview_only ? t('preview only') : null].filter(Boolean).join(', ') || '—'),
+          h('td', tab === 'requests' ? t('{n} visits', { n: l.views }) : l.role_label), h('td', [l.has_password ? t('password') : null, l.terms ? t('terms') : null, l.allow_preview_only ? t('preview only') : null].filter(Boolean).join(', ') || '—'),
           h('td', l.expires_at ? fmtDateShort(l.expires_at) : '—'), h('td', l.downloads + (l.max_downloads ? ' / ' + l.max_downloads : '')), h('td', fmtDateShort(l.created_at)),
           h('td.actions', h('button.icon-btn', { title: t('Copy link'), onClick: () => copyText(l.url).then(() => toast(t('Link copied'), 'success')) }, icon('copy')), h('button.icon-btn', { title: t('Settings'), onClick: async () => { await linkDialog({ path: '/' + l.path, name: l.name }, l); paint(); } }, icon('settings')), h('button.icon-btn', { title: l.active ? t('Disable') : t('Enable'), onClick: async () => { await api.post('shares/link_update', { id: l.id, active: !l.active }); paint(); } }, icon(l.active ? 'link-off' : 'link')), h('button.icon-btn', { title: t('Delete'), onClick: async () => { if (await confirm(t('Delete this link?'), { danger: true, okLabel: t('Delete') })) { await api.post('shares/link_delete', { id: l.id }); paint(); import('./app.js').then(m => m.refreshSidebar()); } } }, icon('trash'))))))));
-      parts.push(h('h3', t('Shared with people')));
-      if (!shared.shares.length) parts.push(h('p.muted', t('You have not shared anything with other accounts.')));
-      else parts.push(h('table.table', h('thead', h('tr', h('th', t('Item')), h('th', t('With')), h('th', t('Role')), h('th', t('Since')), h('th', ''))), h('tbody', shared.shares.map(s => h('tr', h('td', h('a.link', { href: App.filesHash('/' + s.path.split('/').slice(0, -1).join('/')) }, icon(s.is_dir ? 'folder' : 'file'), ' ', s.path.split('/').pop())), h('td', s.target_name, s.target_type === 'group' ? h('span.tag-chip', t('group')) : null, s.target_is_guest ? h('span.tag-chip', t('guest')) : null), h('td', roleSelect(Object.keys(App.features.roles || {}).filter(r => r !== 'owner'), s.role, async r => { await api.post('shares/update', { id: s.id, role: r }); toast(t('Role updated'), 'success', 1500); })), h('td', fmtDateShort(s.created_at)), h('td.actions', h('button.icon-btn', { title: t('Remove'), onClick: async () => { await api.post('shares/delete', { id: s.id }); paint(); } }, icon('x'))))))));
-      replace(content, ...parts);
     } catch (e) { replace(content, emptyState('alert', t('Error'), e.message)); }
   };
   await paint();

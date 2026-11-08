@@ -27,7 +27,9 @@
 ## ✨ Features
 
 **Working with files**
-- Fast file browser with list, grid and gallery views, column sorting, type-ahead selection, drag & drop to move or copy, cut / copy / paste, inline rename, keyboard shortcuts.
+- Fast file browser with list, grid and gallery views, column sorting, a type filter, type-ahead selection, drag & drop to move or copy, cut / copy / paste, inline rename, keyboard shortcuts. Grid cards show thumbnails, the first lines of text files, or the file type and size.
+- **Media library**: the sidebar automatically organises everything you own into Documents (Office, spreadsheets, presentations, PDF, text, code, e-books), Photos and Videos (by year, from EXIF dates when available) and Audio (by artist, read from ID3 / FLAC / container tags with ffprobe), wherever the files live.
+- **Collections**: gather files from any folder, or from items shared with you, in named virtual folders without moving anything.
 - Preview almost anything in the browser: images (with zoom and slideshow), video and audio, PDF (pdf.js), Markdown, text and source code with syntax highlighting, CSV / XLSX tables, DOCX documents, fonts, and a look inside ZIP / TAR archives without unpacking them.
 - Built-in **text / code editor** (CodeMirror, Ctrl+S, conflict detection) and **image editor** (rotate, flip, crop, resize, save as copy).
 - **File versions**: every overwrite or edit keeps the previous content; restore or download any version.
@@ -137,6 +139,8 @@ Forgot your password? The link under the form e-mails you a reset link (if the a
 ### Browsing
 <img src="docs/screenshots/03-files-grid.png" alt="Grid view" width="900">
 
+The sidebar has your folder tree under **My Files**, a **Media** library that sorts every file you own by type (Documents › Office / Spreadsheets / Presentations / PDF / Text / Code / E-books, Photos and Videos by year, Audio by artist), **Shared with me**, your **Collections**, Recent, Starred, a **Sharing** section (with people, public links, file requests) and the Trash. Every group expands and collapses, and the whole sidebar can be hidden with the button in the top left.
+
 *My Files* is your home folder. Switch between **list, grid and gallery** with the buttons on the right of the toolbar or keys `1` `2` `3`; sort with the column headers or the sort menu; type to jump to a name; filter the current folder with the box in the toolbar. Double-click opens folders and previews files; right-click opens the context menu; the **details panel** (`I`) shows information, activity, comments, versions and sharing for the selected item.
 
 Drag items onto folders in the list, the tree or the breadcrumbs to move them (hold Ctrl to copy). *Photos*, *Recent*, *Starred* and tag / label views are virtual folders built from the search index.
@@ -163,6 +167,9 @@ Right-click → **Share…** (or the Share button in the details panel). Search 
 | Distributor | view and share further (links, re-shares) |
 | Content manager | full control of the content: upload, edit, rename, move, delete |
 | Uploader | only add files; cannot see or download what is there (file requests) |
+
+### Collections
+Right-click any files or folders and choose **Add to collection** (or create a new one on the spot). A collection is a virtual folder: the files stay where they are, and the same file can be in several collections. Open *Collections* in the sidebar to browse, rename, recolour or delete them.
 
 ### Public links
 <img src="docs/screenshots/08-link-dialog.png" alt="Link dialog" width="620">

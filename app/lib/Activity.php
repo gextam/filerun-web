@@ -17,6 +17,7 @@ final class Activity
         'list', 'preview', 'download', 'upload', 'create_folder', 'create_file', 'edit', 'rename', 'move', 'copy', 'delete', 'restore', 'purge', 'version_restore', 'lock', 'unlock',
         'share_create', 'share_update', 'share_delete', 'link_create', 'link_update', 'link_delete', 'link_access', 'link_download', 'link_upload',
         'comment', 'tag', 'star', 'metadata', 'follow', 'unfollow', 'search', 'zip',
+        'collection_create', 'collection_delete', 'collection_add',
         'user_create', 'user_update', 'user_delete', 'user_deactivate', 'user_activate', 'group_create', 'group_update', 'group_delete', 'settings_update', 'email_change', 'role_change',
     ];
 

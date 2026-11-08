@@ -9,6 +9,7 @@ import * as Account from './account.js';
 import * as Admin from './admin.js';
 import * as Uploads from './upload.js';
 import * as Link from './link.js';
+import * as Collections from './collections.js';
 import { openPreview } from './preview.js';
 
 const root = $('#app');
@@ -225,14 +226,14 @@ function renderLayout() {
   const userBtn = h('button.user-btn', { onClick: e => userMenu(e.currentTarget) }, avatar(App.user, 'sm'), h('span.user-name', App.user.name), icon('chevron-down'));
   const uploadBtn = h('button.btn.btn-primary.btn-upload', { onClick: e => Files.uploadMenu(e.currentTarget) }, icon('upload'), h('span', t('Upload')));
   const topbar = h('header.topbar',
-    h('button.icon-btn.menu-toggle', { 'aria-label': t('Menu'), onClick: () => layout.el.classList.toggle('sidebar-open') }, icon('menu')),
+    h('button.icon-btn.menu-toggle', { 'aria-label': t('Menu'), title: t('Show or hide the sidebar'), onClick: () => { if (window.innerWidth < 900) layout.el.classList.toggle('sidebar-open'); else { const c = layout.el.classList.toggle('sidebar-collapsed'); App.setPref('sidebar_collapsed', c); } } }, icon('panel-left')),
     h('a.brand', { href: '#/files/' }, s.logo_url ? h('img.brand-logo', { src: s.logo_url, alt: '' }) : h('span.brand-mark', icon('folder')), h('span.brand-name', s.app_name)),
     h('div.search', icon('search'), search, h('button.search-adv', { title: t('Advanced search'), onClick: () => Files.advancedSearch(search.value) }, icon('sliders'))),
     h('div.top-actions', uploadBtn, bell, userBtn));
   const sidebar = h('nav.sidebar');
   const main = h('main.main');
   const details = h('aside.details', { hidden: true });
-  const el = h('div.layout', topbar, h('div.body', sidebar, main, details));
+  const el = h('div.layout', { class: App.pref('sidebar_collapsed', false) ? 'sidebar-collapsed' : '' }, topbar, h('div.body', sidebar, main, details));
   if (App.boot.impersonated_by) el.insertBefore(h('div.impersonation', icon('alert'), t('You are signed in as {user} (impersonation by {admin}).', { user: App.user.username, admin: App.boot.impersonated_by }), h('button.btn.btn-sm', { onClick: signOut }, t('Sign out'))), topbar);
   if (s.announcement) el.insertBefore(h('div.announcement', icon('info'), h('span', s.announcement)), el.querySelector('.body'));
   replace(root, el);
@@ -287,39 +288,94 @@ export async function refreshSidebar() {
 }
 
 export function renderSidebar() {
-  const sb = App.sidebar || { home: [], shared: [], tags: [] };
-  const cur = location.hash;
-  const navItem = (hash, ic, label, badge, extra) => h('a.nav-item', { href: hash, class: cur === hash || (hash !== '#/files/' && cur.startsWith(hash)) || (hash === '#/files/' && cur.startsWith('#/files/') && !cur.startsWith('#/files/@')) ? 'active' : '' }, icon(ic), h('span.nav-label', label), badge ? h('span.nav-badge', badge) : null, extra || null);
+  const sb = App.sidebar || { home: [], shared: [], tags: [], media: {}, collections: [], sharing: {} };
+  const cur = location.hash || '#/files/';
+  const open = Object.assign({ files: true, media: true, shared: true, collections: true, sharing: false, tags: true }, App.pref('nav_open', {}));
+  const toggle = (key) => { open[key] = !open[key]; App.setPref('nav_open', { ...open }); renderSidebar(); };
+  const active = (hash, exact = false) => exact ? cur === hash : (cur === hash || cur.startsWith(hash + '/'));
   const u = App.user;
+
+  /** One navigation row: optional chevron, icon, label, badge, optional action button. */
+  const node = (o) => {
+    const row = h('div.nav-row', { class: (o.depth ? 'nav-depth-' + o.depth : '') + (o.active ? ' active' : ''), style: o.depth ? { paddingLeft: (10 + o.depth * 14) + 'px' } : {} });
+    if (o.key !== undefined) row.appendChild(h('button.nav-chevron', { class: o.children ? (open[o.key] ? 'open' : '') : 'leaf', 'aria-label': t('Expand'), onClick: e => { e.preventDefault(); toggle(o.key); } }, icon('chevron-right')));
+    else row.appendChild(h('span.nav-chevron.leaf'));
+    const link = h('a.nav-item', { href: o.hash, title: o.title || o.label }, o.icon ? icon(o.icon) : (o.dot ? h('span.tag-dot', { style: { background: o.dot } }) : null), h('span.nav-label', o.label), o.badge ? h('span.nav-badge', o.badge) : null);
+    row.appendChild(link);
+    if (o.action) row.appendChild(h('button.nav-action', { title: o.action.title, onClick: e => { e.preventDefault(); o.action.onClick(e); } }, icon(o.action.icon)));
+    return row;
+  };
+  const section = (header, body, key) => h('div.nav-group', header, key === undefined || open[key] ? body : null);
+
+  // My Files + folder tree
+  const tree = h('div.tree');
+  Files.renderTree(tree, sb.home || []);
+  const myFiles = section(node({ key: 'files', hash: '#/files/', icon: 'home', label: t('My Files'), active: cur.startsWith('#/files/') && !cur.startsWith('#/files/@') }), tree, 'files');
+
+  // Media: Documents / Photos / Videos / Audio with sub groups
+  const media = sb.media || {};
+  const mediaDefs = [['documents', 'file-text', t('Documents')], ['photos', 'image', t('Photos')], ['videos', 'film', t('Videos')], ['audio', 'music', t('Audio')]];
+  const mediaBody = h('div.nav-children');
+  for (const [cat, ic, label] of mediaDefs) {
+    const info = media[cat] || { count: 0, children: [] };
+    const key = 'media.' + cat;
+    const kids = (info.children || []).slice(0, 40);
+    mediaBody.appendChild(node({ key: kids.length ? key : undefined, depth: 1, hash: '#/media/' + cat, icon: ic, label, badge: info.count || null, active: active('#/media/' + cat), children: kids.length > 0 }));
+    if (kids.length && open[key]) {
+      const sub = h('div.nav-children');
+      for (const k of kids) sub.appendChild(node({ depth: 2, hash: '#/media/' + cat + '/' + encodeURIComponent(k.id), label: k.label, badge: k.count, active: active('#/media/' + cat + '/' + encodeURIComponent(k.id), true), title: k.label }));
+      mediaBody.appendChild(sub);
+    }
+  }
+  const mediaSection = section(node({ key: 'media', hash: '#/media/documents', icon: 'layout', label: t('Media'), active: false, children: true }), mediaBody, 'media');
+
+  // Shared with me
+  const sharedList = h('div.nav-children');
+  for (const sh of (sb.shared || []).slice(0, 15)) sharedList.appendChild(node({ depth: 1, hash: App.filesHash(sh.vpath), icon: sh.is_dir ? 'folder' : 'file', label: sh.name, title: t('Shared by {name}', { name: sh.owner.name }), active: cur.startsWith('#/files/' + encodeURIComponent(sh.vpath)) }));
+  const sharedSection = section(node({ key: (sb.shared || []).length ? 'shared' : undefined, hash: '#/shared', icon: 'users', label: t('Shared with me'), badge: (sb.shared || []).length || null, active: active('#/shared'), children: (sb.shared || []).length > 0 }), sharedList, 'shared');
+
+  // Collections
+  const cols = sb.collections || [];
+  const colList = h('div.nav-children');
+  for (const c of cols.slice(0, 30)) colList.appendChild(node({ depth: 1, hash: '#/collection/' + c.id, dot: Collections.colorOf(c), label: c.name, badge: c.count || null, active: active('#/collection/' + c.id) }));
+  const colSection = section(node({ key: cols.length ? 'collections' : undefined, hash: '#/collections', icon: 'book', label: t('Collections'), active: active('#/collections'), children: cols.length > 0, action: { icon: 'plus', title: t('New collection'), onClick: () => Collections.editDialog().then(c => { if (c) App.navigate('#/collection/' + c.id); }) } }), colList, 'collections');
+
+  // Sharing (by me)
+  const sh = sb.sharing || {};
+  const sharingBody = h('div.nav-children',
+    node({ depth: 1, hash: '#/sharing/people', icon: 'user-plus', label: t('With people'), badge: sh.people || null, active: active('#/sharing/people') }),
+    node({ depth: 1, hash: '#/sharing/links', icon: 'link', label: t('Public links'), badge: sh.links || null, active: active('#/sharing/links') }),
+    node({ depth: 1, hash: '#/sharing/requests', icon: 'inbox', label: t('File requests'), badge: sh.requests || null, active: active('#/sharing/requests') }));
+  const sharingSection = section(node({ key: 'sharing', hash: '#/sharing/people', icon: 'share', label: t('Sharing'), active: false, children: true }), sharingBody, 'sharing');
+
+  // Tags
+  const tagsList = h('div.nav-children');
+  for (const tg of (sb.tags || []).slice(0, 20)) tagsList.appendChild(node({ depth: 1, hash: '#/tag/' + tg.id, dot: tg.color || 'var(--muted)', label: tg.name, badge: tg.files, active: active('#/tag/' + tg.id) }));
+  const tagsSection = (sb.tags || []).length ? section(node({ key: 'tags', hash: '#/tag/' + sb.tags[0].id, icon: 'tag', label: t('Tags'), active: false, children: true }), tagsList, 'tags') : null;
+
   const used = sb.usage ? sb.usage.used : u.used_bytes, quota = sb.usage ? sb.usage.quota : u.quota_bytes;
   const pct = quota > 0 ? Math.min(100, used / quota * 100) : 0;
-  const tree = h('div.tree');
-  Files.renderTree(tree, sb.home);
-  const sharedList = h('div.nav-sub');
-  for (const s of (sb.shared || []).slice(0, 12)) {
-    sharedList.appendChild(h('a.nav-item.nav-sub-item', { href: App.filesHash(s.vpath), class: cur.startsWith('#/files/' + encodeURIComponent(s.vpath)) ? 'active' : '', title: s.owner.name }, icon(s.is_dir ? 'folder' : 'file'), h('span.nav-label', s.name)));
-  }
-  const tagsList = h('div.nav-sub');
-  for (const tg of (sb.tags || []).slice(0, 15)) tagsList.appendChild(h('a.nav-item.nav-sub-item', { href: '#/tag/' + tg.id }, h('span.tag-dot', { style: { background: tg.color || 'var(--muted)' } }), h('span.nav-label', tg.name), h('span.nav-badge', tg.files)));
   replace(layout.sidebar,
-    h('div.nav-group',
-      navItem('#/files/', 'home', t('My Files')),
-      tree,
-    ),
-    h('div.nav-group',
-      navItem('#/shared', 'users', t('Shared with me'), (sb.shared || []).length || null),
-      (sb.shared || []).length ? sharedList : null,
-      navItem('#/links', 'link', t('My links'), sb.links || null),
-      navItem('#/recent', 'clock', t('Recent')),
-      navItem('#/starred', 'star', t('Starred'), sb.starred || null),
-      navItem('#/photos', 'image', t('Photos')),
-      u.perms && u.perms.trash ? navItem('#/trash', 'trash', t('Trash'), sb.trash || null) : null,
-    ),
-    (sb.tags || []).length ? h('div.nav-group', h('div.nav-title', t('Tags')), tagsList) : null,
+    myFiles,
+    mediaSection,
+    sharedSection,
+    colSection,
+    h('div.nav-group', node({ hash: '#/recent', icon: 'clock', label: t('Recent'), active: active('#/recent') }), node({ hash: '#/starred', icon: 'star', label: t('Starred'), badge: sb.starred || null, active: active('#/starred') })),
+    sharingSection,
+    u.perms && u.perms.trash ? h('div.nav-group', node({ hash: '#/trash', icon: 'trash', label: t('Trash'), badge: sb.trash || null, active: active('#/trash') })) : null,
+    tagsSection,
     h('div.nav-foot',
       h('div.usage', h('div.usage-text', quota > 0 ? t('{used} of {quota} used', { used: fmtSize(used), quota: fmtSize(quota) }) : t('{used} used', { used: fmtSize(used) })), quota > 0 ? h('div.progress', h('div.progress-bar', { class: pct > 90 ? 'danger' : '', style: { width: pct + '%' } })) : null),
-      App.isAdmin ? h('a.nav-item', { href: '#/admin', class: cur.startsWith('#/admin') ? 'active' : '' }, icon('settings'), h('span.nav-label', t('Control panel'))) : null,
+      App.isAdmin ? node({ hash: '#/admin', icon: 'settings', label: t('Control panel'), active: active('#/admin') }) : null,
     ));
+}
+
+export function mediaTitle(cat, sub) {
+  const labels = { documents: t('Documents'), photos: t('Photos'), videos: t('Videos'), audio: t('Audio') };
+  const info = App.sidebar && App.sidebar.media && App.sidebar.media[cat];
+  let subLabel = sub ? (sub.startsWith('artist:') ? sub.slice(7) : sub) : '';
+  if (sub && info) { const k = (info.children || []).find(c => c.id === sub); if (k) subLabel = k.label; }
+  return { title: subLabel ? labels[cat] + ' · ' + subLabel : (labels[cat] || cat), crumbs: [{ name: t('Media'), hash: '#/media/documents' }, { name: labels[cat] || cat, hash: '#/media/' + cat }, ...(subLabel ? [{ name: subLabel }] : [])] };
 }
 
 // ---------------------------------------------------------------------------
@@ -337,20 +393,28 @@ export function route() {
   else if (seg[1] === 'search') r = { name: 'search', q: decodeURIComponent(seg.slice(2).join('/') || '') };
   else if (seg[1] === 'tag') r = { name: 'tag', id: seg[2] };
   else if (seg[1] === 'label') r = { name: 'label', label: seg[2] };
+  else if (seg[1] === 'media') r = { name: 'media', cat: seg[2] || 'documents', sub: decodeURIComponent(seg.slice(3).join('/') || '') };
+  else if (seg[1] === 'photos') r = { name: 'media', cat: 'photos', sub: '' };
+  else if (seg[1] === 'collections') r = { name: 'collections' };
+  else if (seg[1] === 'collection') r = { name: 'collection', id: seg[2] };
+  else if (seg[1] === 'sharing') r = { name: 'sharing', tab: seg[2] || 'people' };
+  else if (seg[1] === 'links') r = { name: 'sharing', tab: 'links' };
   else if (seg[1] === 'account') r = { name: 'account', tab: seg[2] || 'profile' };
   else if (seg[1] === 'admin') r = { name: 'admin', section: seg[2] || 'dashboard', id: seg[3] };
   else r = { name: seg[1] || 'files', path: '/' };
   if (r.name === 'files' && !r.path.startsWith('@') && !r.path.startsWith('/')) r.path = '/' + r.path;
   App.route = r;
   const main = layout.main;
-  if (!['files', 'recent', 'starred', 'photos', 'search', 'tag', 'label'].includes(r.name)) layout.details.hidden = true;
+  if (!['files', 'recent', 'starred', 'media', 'collection', 'search', 'tag', 'label'].includes(r.name)) layout.details.hidden = true;
   switch (r.name) {
     case 'files': Files.browse(main, r.path); break;
     case 'shared': Share.sharedWithMe(main); break;
-    case 'links': Share.myLinks(main); break;
+    case 'sharing': Share.sharing(main, r.tab); break;
     case 'recent': Files.virtual(main, 'recent', t('Recent')); break;
     case 'starred': Files.virtual(main, 'starred', t('Starred')); break;
-    case 'photos': Files.virtual(main, 'photos', t('Photos')); break;
+    case 'media': { const m = mediaTitle(r.cat, r.sub); Files.virtual(main, 'media', m.title, { cat: r.cat, sub: r.sub, crumbs: m.crumbs }); break; }
+    case 'collections': Collections.list(main); break;
+    case 'collection': Files.virtual(main, 'collection', t('Collection'), { id: r.id }); break;
     case 'trash': Files.trash(main); break;
     case 'search': Files.virtual(main, 'search', t('Search: {q}', { q: r.q }), { q: r.q }); break;
     case 'tag': Files.virtual(main, 'tag', t('Tag'), { id: r.id }); break;

@@ -181,6 +181,18 @@ final class Indexer
             if (!$f->isFile()) continue;
             $r = substr($f->getPathname(), strlen($home) + 1);
             Index::upsert($ownerId, $r, false, (int) $f->getSize(), (int) $f->getMTime());
+            $kind = Util::kind($f->getFilename());
+            if (in_array($kind, ['image', 'raw', 'audio', 'video'], true)) {
+                $meta = Meta::get($ownerId, $r);
+                if (!$meta || $meta['exif'] === null) {
+                    try {
+                        $info = $kind === 'audio' || $kind === 'video' ? Media::probe($f->getPathname()) : (Settings::bool('exif_enabled') ? Exif::read($f->getPathname()) : []);
+                        Meta::set($ownerId, $r, ['exif' => $info ?: ['_none' => true]], false, null);
+                    } catch (Throwable $e) {
+                        fr_log('metadata probe failed for ' . $r . ': ' . $e->getMessage(), 'warn');
+                    }
+                }
+            }
             if (self::canIndex($f->getFilename(), (int) $f->getSize())) {
                 self::index($ownerId, $r, $f->getPathname());
                 $n++;

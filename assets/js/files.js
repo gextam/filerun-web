@@ -6,11 +6,12 @@ import { h, $, $$, icon, fileIcon, replace, clear, dialog, confirm, prompt, toas
 import { openPreview, closePreview, isPreviewOpen, canPreview } from './preview.js';
 import * as Uploads from './upload.js';
 import * as Share from './share.js';
+import * as Collections from './collections.js';
 
 export const S = {
   main: null, mode: 'browse', kind: null, path: '/', folder: null, items: [], total: 0, params: {},
   selection: new Set(), anchor: -1, focus: -1,
-  view: 'list', sort: { by: 'name', dir: 'asc' }, filter: '', showHidden: false,
+  view: 'list', sort: { by: 'name', dir: 'asc' }, filter: '', showHidden: false, typeFilter: 'all',
   detailsOpen: false, detailsItem: null, loading: false, columns: null,
   renderGen: 0,
 };
@@ -40,7 +41,8 @@ export async function browse(main, vpath) {
 export async function virtual(main, kind, title, params = {}) {
   loadPrefs();
   S.main = main; S.mode = 'virtual'; S.kind = kind; S.path = '/'; S.params = params; S.title = title;
-  if (kind === 'photos') S.view = App.pref('view_photos', 'gallery');
+  if (kind === 'photos' || (kind === 'media' && (params.cat === 'photos' || params.cat === 'videos'))) S.view = App.pref('view_photos', 'gallery');
+  S.typeFilter = 'all';
   S.selection.clear(); S.anchor = -1; S.focus = -1; S.filter = '';
   renderSkeleton();
   await load();
@@ -65,10 +67,11 @@ async function load(silent = false) {
       App.title(S.folder.name);
     } else {
       const k = S.kind;
-      const ep = { recent: 'files/recent', starred: 'files/starred', photos: 'files/photos', search: 'files/search', tag: 'files/by_tag', label: 'files/by_label' }[k];
-      const params = k === 'search' ? { q: S.params.q, p: S.params.p || '/', ...S.params.filters } : k === 'tag' ? { id: S.params.id } : k === 'label' ? { label: S.params.label } : { limit: k === 'photos' ? 2000 : 200 };
+      const ep = { recent: 'files/recent', starred: 'files/starred', photos: 'files/photos', search: 'files/search', tag: 'files/by_tag', label: 'files/by_label', media: 'files/media', collection: 'collections/items' }[k];
+      const params = k === 'search' ? { q: S.params.q, p: S.params.p || '/', ...S.params.filters } : k === 'tag' ? { id: S.params.id } : k === 'label' ? { label: S.params.label } : k === 'media' ? { cat: S.params.cat, sub: S.params.sub || '', limit: 2000 } : k === 'collection' ? { id: S.params.id } : { limit: k === 'photos' ? 2000 : 200 };
       res = await api.get(ep, params);
       if (gen !== S.renderGen) return;
+      if (k === 'collection' && res.collection) { S.title = res.collection.name; S.collection = res.collection; S.params.crumbs = [{ name: t('Collections'), hash: '#/collections' }, { name: res.collection.name }]; }
       let items = res.items || [];
       if (k === 'search') { S.contentHits = res.content || []; S.metaHits = res.metadata || []; items = items.concat(S.contentHits.map(i => ({ ...i, _content: true })), S.metaHits.map(i => ({ ...i, _meta: true }))); }
       S.items = items; S.total = items.length;
@@ -124,13 +127,15 @@ const can = (p) => !!perms()[p];
 function renderToolbar() {
   const tb = S.el.toolbar;
   const crumbs = h('div.crumbs');
-  const list = S.mode === 'browse' ? (S.folder.breadcrumbs || []) : [{ name: S.title, path: null }];
+  const list = S.mode === 'browse' ? (S.folder.breadcrumbs || []) : (S.params.crumbs || [{ name: S.title, path: null }]);
   const shown = list.length > 4 ? [list[0], { name: '…', path: null, menu: list.slice(1, -2) }, ...list.slice(-2)] : list;
   shown.forEach((c, i) => {
     if (i > 0) crumbs.appendChild(icon('chevron-right', 'crumb-sep'));
     const el = h('button.crumb', { class: i === shown.length - 1 ? 'current' : '', title: c.name }, c.name);
     if (c.menu) el.addEventListener('click', () => menu(c.menu.map(m => ({ label: m.name, icon: 'folder', onClick: () => goCrumb(m.path) })), el));
-    else if (c.path !== null && i < shown.length - 1) { el.addEventListener('click', () => goCrumb(c.path)); makeDropTarget(el, c.path); }
+    else if (c.hash) el.addEventListener('click', () => App.navigate(c.hash));
+    else if (c.path !== null && c.path !== undefined && i < shown.length - 1) { el.addEventListener('click', () => goCrumb(c.path)); makeDropTarget(el, c.path); }
+    else if (i === shown.length - 1 && S.mode === 'virtual' && S.kind === 'collection' && S.collection) el.addEventListener('click', e => menu(Collections.cardMenu(S.collection, () => import('./app.js').then(m => m.route())), e.currentTarget));
     else if (i === shown.length - 1 && S.mode === 'browse') el.addEventListener('click', e => folderMenu(e.currentTarget));
     crumbs.appendChild(el);
   });
@@ -150,8 +155,14 @@ function renderToolbar() {
     if (App.clipboard && can('create')) actions.appendChild(h('button.tbtn', { onClick: pasteClipboard }, icon('clipboard'), h('span.tbtn-label', t('Paste'))));
   } else if (S.kind === 'search') {
     actions.appendChild(h('button.tbtn', { onClick: () => advancedSearch(S.params.q) }, icon('sliders'), h('span.tbtn-label', t('Filters'))));
+  } else if (S.kind === 'collection' && S.collection) {
+    actions.appendChild(h('button.tbtn', { onClick: e => menu(Collections.cardMenu(S.collection, () => import('./app.js').then(m => m.route())), e.currentTarget) }, icon('more-h'), h('span.tbtn-label', t('Collection'))));
   }
   const right = h('div.toolbar-right');
+  right.appendChild(dropdown(h('button.tbtn', { class: S.typeFilter !== 'all' ? 'active' : '', title: t('Filter by type') }, icon('filter'), h('span.tbtn-label', S.typeFilter === 'all' ? t('Type') : TYPE_FILTERS[S.typeFilter].label)), () => [
+    { header: t('Show only') },
+    ...Object.entries(TYPE_FILTERS).map(([k, f]) => ({ label: f.label, icon: f.icon, checked: S.typeFilter === k, onClick: () => { S.typeFilter = k; renderToolbar(); renderItems(); renderStatus(); } })),
+  ]));
   const filter = h('input.filter-input', { type: 'search', placeholder: t('Filter'), value: S.filter, 'aria-label': t('Filter list') });
   filter.addEventListener('input', debounce(() => { S.filter = filter.value; renderItems(); renderStatus(); }, 120));
   right.appendChild(filter);
@@ -250,10 +261,24 @@ async function newFile(ext) {
 // ---------------------------------------------------------------------------
 // Items rendering
 // ---------------------------------------------------------------------------
+const TYPE_FILTERS = {
+  all: { label: t('Everything'), icon: 'layout', test: () => true },
+  folders: { label: t('Folders'), icon: 'folder', test: i => i.is_dir },
+  images: { label: t('Images'), icon: 'image', test: i => i.kind === 'image' || i.kind === 'raw' },
+  videos: { label: t('Videos'), icon: 'film', test: i => i.kind === 'video' },
+  audio: { label: t('Audio'), icon: 'music', test: i => i.kind === 'audio' },
+  documents: { label: t('Documents'), icon: 'file-text', test: i => ['doc', 'sheet', 'slide', 'pdf', 'ebook'].includes(i.kind) },
+  text: { label: t('Text & code'), icon: 'code', test: i => ['text', 'markdown', 'code'].includes(i.kind) },
+  archives: { label: t('Archives'), icon: 'archive', test: i => i.kind === 'archive' },
+  other: { label: t('Other files'), icon: 'file', test: i => !i.is_dir && ['other', 'font', 'model', 'exe'].includes(i.kind) },
+};
+
 function visibleItems() {
-  if (!S.filter) return S.items;
+  let items = S.items;
+  if (S.typeFilter !== 'all' && TYPE_FILTERS[S.typeFilter]) items = items.filter(TYPE_FILTERS[S.typeFilter].test);
+  if (!S.filter) return items;
   const f = S.filter.toLowerCase();
-  return S.items.filter(i => i.name.toLowerCase().includes(f));
+  return items.filter(i => i.name.toLowerCase().includes(f));
 }
 
 export function renderItems() {
@@ -358,16 +383,56 @@ export function kindLabel(it) {
 }
 
 function renderGrid(content, items) {
-  const grid = h('div.grid', { class: S.view === 'gallery' ? 'gallery' : '' });
-  items.forEach((it, idx) => {
-    const tile = h('div.tile', { dataset: { idx, path: it.path }, draggable: true, title: it.name + (it.is_dir ? '' : ' · ' + fmtSize(it.size)) },
-      h('div.tile-thumb', thumbOrIcon(it, 'lg', S.view === 'gallery' ? 'medium' : 'small'), h('span.check-box', icon('check'))),
-      h('div.tile-name', h('span.name-text', it.name)),
-      h('div.tile-meta', h('span.badges', badges(it)), h('span.tile-info', it.is_dir ? '' : fmtSize(it.size))));
+  const gallery = S.view === 'gallery';
+  const folders = items.filter(i => i.is_dir);
+  const files = items.filter(i => !i.is_dir);
+  const wrap = h('div.grid-wrap');
+  if (folders.length) {
+    const chips = h('div.folder-chips');
+    for (const it of folders) {
+      const idx = items.indexOf(it);
+      const chip = h('div.tile.tile-folder', { dataset: { idx, path: it.path }, draggable: true, title: it.name },
+        h('span.check-box', icon('check')), fileIcon(it, 'sm'), h('span.name-text', it.name), h('span.badges', badges(it)));
+      wireItem(chip, it, idx);
+      chips.appendChild(chip);
+    }
+    wrap.appendChild(chips);
+  }
+  const grid = h('div.grid', { class: gallery ? 'gallery' : '' });
+  for (const it of files) {
+    const idx = items.indexOf(it);
+    const textKind = ['text', 'code', 'markdown'].includes(it.kind);
+    const preview = h('div.tile-thumb', h('span.check-box', icon('check')));
+    if (it.thumb) preview.appendChild(thumbOrIcon(it, 'lg', gallery ? 'medium' : 'small'));
+    else if (textKind && !gallery) preview.appendChild(h('div.tile-snippet', { dataset: { path: it.path } }, it._snippet || ''));
+    else preview.appendChild(h('div.tile-placeholder', fileIcon(it, 'lg'), h('div.tile-kind', kindLabel(it)), h('div.tile-size', fmtSize(it.size))));
+    const tile = gallery
+      ? h('div.tile', { dataset: { idx, path: it.path }, draggable: true, title: it.name + ' · ' + fmtSize(it.size) }, preview, h('div.tile-name', h('span.name-text', it.name)), h('div.tile-meta', h('span.badges', badges(it)), h('span.tile-info', fmtSize(it.size))))
+      : h('div.tile.tile-card', { dataset: { idx, path: it.path }, draggable: true, title: it.name + ' · ' + fmtSize(it.size) },
+        h('div.tile-head', fileIcon(it, 'sm'), h('span.name-text', it.name), it.locked_by ? h('span.tile-lock', { title: t('Locked by {name}', { name: it.locked_by_name }) }, icon('lock')) : null),
+        preview,
+        h('div.tile-meta', h('span.badges', badges(it)), h('span.tile-info', S.mode === 'virtual' ? locationOf(it) : fmtSize(it.size))));
     wireItem(tile, it, idx);
     grid.appendChild(tile);
-  });
-  content.appendChild(grid);
+  }
+  wrap.appendChild(grid);
+  content.appendChild(wrap);
+  if (!gallery) loadSnippets(files.filter(it => ['text', 'code', 'markdown'].includes(it.kind) && !it.thumb && it._snippet === undefined));
+}
+
+/** Fetch the first lines of text files for the grid cards (one request for the whole listing). */
+async function loadSnippets(items) {
+  if (!items.length) return;
+  const gen = S.renderGen;
+  try {
+    const res = await api.post('files/snippets', { paths: items.slice(0, 100).map(i => i.path) });
+    if (gen !== S.renderGen) return;
+    for (const it of items) {
+      it._snippet = res[it.path] !== undefined ? res[it.path] : '';
+      const el = S.el.content.querySelector('.tile-snippet[data-path="' + CSS.escape(it.path) + '"]');
+      if (el) { if (it._snippet) el.textContent = it._snippet; else el.replaceWith(h('div.tile-placeholder', fileIcon(it, 'lg'), h('div.tile-kind', kindLabel(it)), h('div.tile-size', fmtSize(it.size)))); }
+    }
+  } catch (e) { /* previews are optional */ }
 }
 
 function observeThumbs(root) {
@@ -614,6 +679,10 @@ export function itemActions(sel, ctxPerms = null) {
   if (p.meta) {
     items.push({ label: t('Label'), icon: 'flag', submenu: [...Object.keys(LABEL_COLORS).map(l => ({ label: t(l), color: LABEL_COLORS[l], checked: one && one.label === l, onClick: () => setLabel(sel, l) })), { sep: true }, { label: t('None'), onClick: () => setLabel(sel, '') }] });
     items.push({ label: t('Tags…'), icon: 'tag', onClick: () => tagsDialog(sel) });
+  }
+  if (App.user && !App.isLinkMode) {
+    items.push(Collections.menuItems(sel, () => { if (S.kind === 'collection') refresh(); }));
+    if (S.kind === 'collection' && S.params.id) items.push({ label: t('Remove from collection'), icon: 'x', onClick: async () => { try { await api.post('collections/remove', { id: S.params.id, paths: sel.map(i => i.path) }); await refresh(false); import('./app.js').then(m => m.refreshSidebar()); } catch (e) { toast(e.message, 'error'); } } });
   }
   if (one && p.lock && !one.is_dir && App.user) items.push(one.locked_by ? { label: t('Unlock'), icon: 'unlock', onClick: () => lockItem(one, false) } : { label: t('Lock'), icon: 'lock', onClick: () => lockItem(one, true) });
   if (one && App.user && !App.isLinkMode) items.push({ label: one.following ? t('Unfollow') : t('Follow (get notified)'), icon: 'bell', onClick: () => followItem(one, !one.following) });
@@ -929,6 +998,10 @@ function detailsTab(body, item) {
   const p = item.perms || {};
   const kv = [[t('Type'), kindLabel(item)]];
   if (!item.is_dir) kv.push([t('Size'), fmtSize(item.size)]); else if (item.children !== undefined) kv.push([t('Contains'), t('{n} items', { n: item.children })]);
+  if (item.is_dir) {
+    const sizeText = h('span', item._size !== undefined ? item._size : '—');
+    kv.push([t('Size'), h('span.size-calc', sizeText, h('button.icon-btn.sm', { title: t('Calculate size'), onClick: async e => { e.currentTarget.disabled = true; try { const r = await api.get('files/size', { p: item.path }); item._size = fmtSize(r.size) + ' · ' + t('{n} files', { n: r.files }); sizeText.textContent = item._size; } catch (ex) { toast(ex.message, 'error'); } e.currentTarget.disabled = false; } }, icon('refresh')))]);
+  }
   kv.push([t('Modified'), fmtDate(item.mtime)]);
   if (item.created_by) kv.push([t('Added by'), item.created_by.name]);
   kv.push([t('Location'), item.path.startsWith('@') ? t('Shared with me') : (parentPath(item.path) || '/')]);
@@ -937,7 +1010,17 @@ function detailsTab(body, item) {
   if (item.locked_by) kv.push([t('Locked by'), item.locked_by_name + (item.locked_at ? ' · ' + relTime(item.locked_at) : '')]);
   const dl = h('dl.kv', kv.map(([k, v]) => [h('dt', k), h('dd', v)]));
   body.appendChild(dl);
-  if (item.shared) body.appendChild(h('div.shared-note', icon(item.shared === 'link' ? 'link' : 'users'), item.shared === 'link' ? t('Shared by link') : item.shared === 'both' ? t('Shared with users and by link') : t('Shared with users')));
+  if (App.user && !App.isLinkMode && p.share && !item._folder) {
+    const box = h('div.details-section.access', h('h4', t('Who has access')), spinner());
+    body.appendChild(box);
+    api.get('shares/item', { p: item.path }).then(info => {
+      const faces = [avatar(App.user, 'sm')];
+      for (const sh of info.shares.slice(0, 7)) faces.push(sh.target_type === 'group' ? h('span.avatar.avatar-sm.group', { title: sh.target_name }, icon('users')) : avatar({ name: sh.target_name }, 'sm'));
+      if (info.links.length) faces.push(h('span.avatar.avatar-sm.group', { title: t('{n} links', { n: info.links.length }) }, icon('link')));
+      const summary = !info.shares.length && !info.links.length ? t('Private to you') : [info.shares.length ? t('{n} people or groups', { n: info.shares.length }) : null, info.links.length ? t('{n} links', { n: info.links.length }) : null].filter(Boolean).join(' · ');
+      replace(box, h('h4', t('Who has access')), h('div.access-row', ...faces), h('div.hint', summary), info.can_share ? h('button.btn.btn-sm', { onClick: () => Share.shareDialog(item).then(() => { refresh(); renderDetails(); }) }, icon('users'), t('Manage access')) : null);
+    }).catch(() => box.remove());
+  } else if (item.shared) body.appendChild(h('div.shared-note', icon(item.shared === 'link' ? 'link' : 'users'), item.shared === 'link' ? t('Shared by link') : item.shared === 'both' ? t('Shared with users and by link') : t('Shared with users')));
   // Quick actions
   const acts = h('div.details-actions');
   if (p.download && !item.is_dir) acts.appendChild(h('button.btn.btn-sm', { onClick: () => api.download([item.path]) }, icon('download'), t('Download')));
@@ -949,7 +1032,10 @@ function detailsTab(body, item) {
   if (p.meta) {
     body.appendChild(h('div.details-section', h('h4', t('Label')), labelPicker(item.label, async l => { await setLabel([item], l); item.label = l || null; renderDetails(); })));
     body.appendChild(h('div.details-section', h('h4', t('Rating')), stars(item.rating, async v => { try { await api.post('files/rating', { p: item.path, rating: v }); item.rating = v || null; renderDetails(); refresh(); } catch (e) { toast(e.message, 'error'); } })));
-    const tagWrap = h('div.details-section', h('h4', t('Tags')), h('div.chips', (item.tags || []).map(tg => h('span.chip', { style: tg.color ? { '--tag': tg.color } : {} }, tg.name)), h('button.chip.chip-btn', { onClick: () => tagsDialog([item]) }, icon('plus'), t('Edit'))));
+    const tagInput = h('input.input.tag-input', { placeholder: t('Add tag…') });
+    const saveTags = async (names) => { try { item.tags = await api.post('files/tags', { paths: [item.path], tags: names }).then(r => r.tags); renderDetails(); refresh(); import('./app.js').then(m => m.refreshSidebar()); } catch (e) { toast(e.message, 'error'); } };
+    tagInput.addEventListener('keydown', e => { if (e.key === 'Enter' && tagInput.value.trim()) { e.preventDefault(); saveTags([...(item.tags || []).map(x => x.name), tagInput.value.trim()]); } });
+    const tagWrap = h('div.details-section', h('h4', t('Tags')), h('div.chips', (item.tags || []).map(tg => h('span.chip', { style: tg.color ? { '--tag': tg.color } : {} }, tg.name, h('button.chip-x', { type: 'button', title: t('Remove'), onClick: () => saveTags((item.tags || []).filter(x => x.name !== tg.name).map(x => x.name)) }, icon('x'))))), tagInput);
     body.appendChild(tagWrap);
     const desc = h('textarea.input.desc', { placeholder: t('Add a description…'), rows: 2 }, item.description || '');
     desc.addEventListener('change', async () => { try { await api.post('files/describe', { p: item.path, description: desc.value }); toast(t('Saved'), 'success', 1500); } catch (e) { toast(e.message, 'error'); } });
@@ -973,13 +1059,13 @@ function detailsTab(body, item) {
       body.appendChild(h('div.details-section', h('h4', t('Metadata')), form));
     }
   }
-  if (item.exif && Object.keys(item.exif).length) {
+  if (item.exif && Object.keys(item.exif).filter(k => k !== '_none').length) {
     const ex = item.exif;
-    const nice = { Camera: t('Camera'), LensModel: t('Lens'), DateTimeOriginal: t('Taken'), ExposureTime: t('Exposure'), FNumber: t('Aperture'), ISO: 'ISO', FocalLength: t('Focal length'), FocalLength35mm: t('Focal length (35mm)'), Flash: t('Flash'), ExposureProgram: t('Program'), WhiteBalance: t('White balance'), Width: t('Width'), Height: t('Height'), Software: t('Software'), Artist: t('Artist'), Copyright: t('Copyright'), Title: t('Title'), Description: t('Description'), Keywords: t('Keywords'), City: t('City'), Country: t('Country'), GPSAltitude: t('Altitude') };
+    const nice = { Title: t('Title'), Artist: t('Artist'), Album: t('Album'), Genre: t('Genre'), Year: t('Year'), Track: t('Track'), Duration: t('Duration'), Bitrate: t('Bitrate'), Codec: t('Video codec'), AudioCodec: t('Audio codec'), FrameRate: t('Frame rate'), SampleRate: t('Sample rate'), Camera: t('Camera'), LensModel: t('Lens'), DateTimeOriginal: t('Taken'), ExposureTime: t('Exposure'), FNumber: t('Aperture'), ISO: 'ISO', FocalLength: t('Focal length'), FocalLength35mm: t('Focal length (35mm)'), Flash: t('Flash'), ExposureProgram: t('Program'), WhiteBalance: t('White balance'), Width: t('Width'), Height: t('Height'), Software: t('Software'), Artist: t('Artist'), Copyright: t('Copyright'), Title: t('Title'), Description: t('Description'), Keywords: t('Keywords'), City: t('City'), Country: t('Country'), GPSAltitude: t('Altitude') };
     const rows = [];
     for (const [k, label] of Object.entries(nice)) if (ex[k] !== undefined && ex[k] !== '') rows.push([label, Array.isArray(ex[k]) ? ex[k].join(', ') : String(ex[k])]);
     if (ex.GPSLatitude !== undefined) rows.push([t('Location'), h('a', { href: 'https://www.openstreetmap.org/?mlat=' + ex.GPSLatitude + '&mlon=' + ex.GPSLongitude + '#map=15/' + ex.GPSLatitude + '/' + ex.GPSLongitude, target: '_blank', rel: 'noopener' }, ex.GPSLatitude + ', ' + ex.GPSLongitude)]);
-    body.appendChild(h('details.details-section.exif', { open: false }, h('summary', h('h4', t('Photo information'))), h('dl.kv', rows.map(([k, v]) => [h('dt', k), h('dd', v)]))));
+    if (rows.length) body.appendChild(h('details.details-section.exif', { open: ['audio', 'video'].includes(item.kind) }, h('summary', h('h4', ['audio', 'video'].includes(item.kind) ? t('Media information') : t('Photo information'))), h('dl.kv', rows.map(([k, v]) => [h('dt', k), h('dd', v)]))));
   }
 }
 

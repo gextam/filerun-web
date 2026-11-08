@@ -403,6 +403,8 @@ final class Users
             DB::delete('file_index', 'owner_id = ?', [$id]);
             DB::delete('dav_locks', 'owner_id = ? OR user_id = ?', [$id, $id]);
             DB::delete('traffic', 'user_id = ?', [$id]);
+            DB::q('DELETE FROM {{collection_items}} WHERE owner_id = ? OR collection_id IN (SELECT id FROM {{collections}} WHERE user_id = ?)', [$id, $id]);
+            DB::delete('collections', 'user_id = ?', [$id]);
             DB::delete('users', 'id = ?', [$id]);
         });
         self::forget($id);

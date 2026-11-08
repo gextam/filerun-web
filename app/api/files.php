@@ -48,6 +48,13 @@ final class FilesApi
             'starred' => (int) DB::val('SELECT COUNT(*) FROM {{stars}} WHERE user_id = ?', [(int) $u['id']]),
             'links' => (int) DB::val('SELECT COUNT(*) FROM {{weblinks}} WHERE owner_id = ? OR created_by = ?', [(int) $u['id'], (int) $u['id']]),
             'tags' => Meta::tagsOf((int) $u['id']),
+            'media' => Media::tree((int) $u['id']),
+            'collections' => (static function () use ($u) { require_once FR_APP_DIR . '/api/collections.php'; return CollectionsApi::all((int) $u['id']); })(),
+            'sharing' => [
+                'people' => (int) DB::val('SELECT COUNT(*) FROM {{shares}} WHERE owner_id = ? OR created_by = ?', [(int) $u['id'], (int) $u['id']]),
+                'links' => (int) DB::val("SELECT COUNT(*) FROM {{weblinks}} WHERE (owner_id = ? OR created_by = ?) AND role <> 'uploader'", [(int) $u['id'], (int) $u['id']]),
+                'requests' => (int) DB::val("SELECT COUNT(*) FROM {{weblinks}} WHERE (owner_id = ? OR created_by = ?) AND role = 'uploader'", [(int) $u['id'], (int) $u['id']]),
+            ],
             'notifications' => Notify::unreadCount((int) $u['id']),
             'usage' => ['used' => (int) $u['used_bytes'], 'quota' => (int) $u['quota_bytes']],
         ]);
@@ -457,6 +464,46 @@ final class FilesApi
         $u = Api::requireUser();
         $root = Paths::resolve('/', $u);
         Http::ok(['items' => Storage::fromIndexRows($root, Index::recent((int) $u['id'], Http::int('limit', 100)))]);
+    }
+
+    /** Media categories: documents / photos / videos / audio, optionally one sub group (subtype, year, artist). */
+    public static function media(): void
+    {
+        $root = Api::ctx(Http::str('p', '/'));
+        if (!$root->can('read')) throw new PermissionException('Not allowed');
+        $cat = Http::str('cat', 'documents');
+        $sub = Http::str('sub', '');
+        $rows = Media::listRows($root->ownerId, $cat, $sub, Http::int('limit', 2000), Http::int('offset', 0), $root->rel);
+        Http::ok(['items' => Storage::fromIndexRows($root, $rows), 'category' => $cat, 'sub' => $sub]);
+    }
+
+    public static function media_tree(): void
+    {
+        $u = Api::requireUser();
+        Http::ok(Media::tree((int) $u['id']));
+    }
+
+    /** First characters of text files, for content previews in the grid view. */
+    public static function snippets(): void
+    {
+        $paths = Api::paths();
+        $out = [];
+        foreach (array_slice($paths, 0, 120) as $p) {
+            try {
+                $ctx = Api::ctx($p);
+                if (!$ctx->can('read') || !is_file($ctx->abs)) continue;
+                $kind = Util::kind($ctx->rel);
+                if (!in_array($kind, ['text', 'code', 'markdown'], true) || filesize($ctx->abs) > 2 * 1024 * 1024) continue;
+                $fh = fopen($ctx->abs, 'rb');
+                $data = $fh ? (string) fread($fh, 1200) : '';
+                if ($fh) fclose($fh);
+                if (!mb_check_encoding($data, 'UTF-8')) { $conv = @mb_convert_encoding($data, 'UTF-8', 'Windows-1252, ISO-8859-1, UTF-8'); $data = is_string($conv) ? $conv : ''; }
+                if (preg_match('/[\x00-\x08\x0E-\x1F]/', $data)) continue; // binary
+                $out[$p] = mb_substr($data, 0, 600);
+            } catch (Throwable) {
+            }
+        }
+        Http::ok($out);
     }
 
     public static function photos(): void
