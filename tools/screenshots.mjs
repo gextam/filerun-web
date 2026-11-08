@@ -55,7 +55,13 @@ await send('Page.enable'); await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
 if (args.dark) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 
-async function goto(url) { await send('Page.navigate', { url }); await sleep(1200); await evaluate('new Promise(r => document.readyState === "complete" ? r() : addEventListener("load", r))'); }
+async function goto(url) {
+  await send('Page.navigate', { url: 'about:blank' }); await sleep(150);
+  await send('Page.navigate', { url }); await sleep(800);
+  await evaluate('new Promise(r => document.readyState === "complete" ? r() : addEventListener("load", r))');
+  const t0 = Date.now(); while (Date.now() - t0 < 8000 && await evaluate('!!document.querySelector(".boot")')) await sleep(150);
+  await sleep(400);
+}
 async function shot(name, { selector, delay = 600, full = false } = {}) {
   await sleep(delay);
   let clip;
@@ -63,7 +69,8 @@ async function shot(name, { selector, delay = 600, full = false } = {}) {
     const box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, scale: 1 }; })()`);
     if (box) clip = box;
   }
-  const { data } = await send('Page.captureScreenshot', { format: 'png', clip, captureBeyondViewport: full });
+  await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+  const { data } = await send('Page.captureScreenshot', { format: 'png', clip, captureBeyondViewport: full, fromSurface: true });
   writeFileSync(resolve(OUT, name + '.png'), Buffer.from(data, 'base64'));
   console.log('✓', name + '.png');
 }
@@ -81,49 +88,45 @@ await shot('01-login');
 // 2. Sign in through the API (keeps the credentials out of the DOM) and reload
 const login = await api('auth/login', { username: USER, password: PASS, remember: false });
 if (!login.ok) throw new Error('Login failed: ' + login.error);
-await goto(URL_ + '/#/files/');
+if (login.data && login.data.status === '2fa') throw new Error('The demo account must not require a second factor for screenshots');
+await goto(URL_ + '/?t=' + Date.now() + '#/files/');
 await waitFor('.row, .tile, .empty');
 await shot('02-files-list');
 
 // 3. Grid and gallery views
 await click('.view-switch .tbtn:nth-child(2)'); await shot('03-files-grid', { delay: 900 });
-await evaluate(`location.hash = '#/photos'`); await sleep(1500); await shot('04-photos-gallery');
+await goto(URL_ + '/#/photos'); await sleep(1500); await shot('04-photos-gallery');
 
 // 4. Details panel
-await evaluate(`location.hash = '#/files/'`); await sleep(1200);
+await goto(URL_ + '/#/files/'); await sleep(1200);
 await click('.view-switch .tbtn:nth-child(1)');
 await evaluate(`(() => { const r = document.querySelector('.row'); if (r) r.click(); })()`);
 await evaluate(`(() => { if (document.querySelector('.details[hidden]')) document.querySelector('.toolbar-right .tbtn[title="Details"]').click(); })()`);
 await sleep(1200); await shot('05-details-panel');
 
-// 5. Preview of the first image/pdf
-await evaluate(`(() => { const r = [...document.querySelectorAll('.row')].find(x => /\\.(jpg|jpeg|png|pdf)$/i.test(x.querySelector('.name-text')?.textContent || '')); if (r) r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); })()`);
-await sleep(2200); await shot('06-preview');
+// 5. Preview of the first photo (opened through the app's own module, which is more reliable than synthetic events)
+const mod = (name) => `import((window.FR_BOOT.asset_base || '') + '/assets/js/${name}.js')`;
+await evaluate(`(async () => { const { api } = await ${mod('api')}; const P = await ${mod('preview')}; const res = await api.get('files/list', { p: '/Photos' }); P.openPreview(res.items, 0, { folderPerms: res.folder.perms }); })()`);
+await sleep(2500); await shot('06-preview');
+await evaluate(`(async () => { const P = await ${mod('preview')}; P.closePreview(); })()`); await sleep(400);
+
+// 6. Share dialog and link dialog on a folder
+await evaluate(`(async () => { const S = await ${mod('share')}; S.shareDialog({ path: '/Documents', name: 'Documents', is_dir: true }); })()`);
+await sleep(1800); await shot('07-share-dialog');
+await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(400);
+await evaluate(`(async () => { const S = await ${mod('share')}; S.linkDialog({ path: '/Documents', name: 'Documents', is_dir: true }); })()`);
+await sleep(1800); await shot('08-link-dialog');
 await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(400);
 
-// 6. Share dialog on the first folder
-await evaluate(`(() => { const r = [...document.querySelectorAll('.row')].find(x => x.querySelector('.kind-folder')); if (r) { r.click(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 400, clientY: 300 })); } })()`);
-await sleep(500);
-await evaluate(`(() => { const b = [...document.querySelectorAll('.menu-item')].find(x => /Share…/.test(x.textContent)); if (b) b.click(); })()`);
-await sleep(1500); await shot('07-share-dialog');
-await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(300);
-
-// 7. Link dialog
-await evaluate(`(() => { const r = [...document.querySelectorAll('.row')].find(x => x.querySelector('.kind-folder')); if (r) { r.click(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 400, clientY: 300 })); } })()`);
-await sleep(500);
-await evaluate(`(() => { const b = [...document.querySelectorAll('.menu-item')].find(x => /Get link/.test(x.textContent)); if (b) b.click(); })()`);
-await sleep(1500); await shot('08-link-dialog');
-await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(300);
-
 // 8. Search, shared with me, trash, account, admin
-await evaluate(`location.hash = '#/search/report'`); await sleep(1800); await shot('09-search');
-await evaluate(`location.hash = '#/shared'`); await sleep(1500); await shot('10-shared-with-me');
-await evaluate(`location.hash = '#/account/security'`); await sleep(1500); await shot('11-account-security');
-await evaluate(`location.hash = '#/account/apps'`); await sleep(1500); await shot('12-webdav-apps');
-await evaluate(`location.hash = '#/admin'`); await sleep(1800); await shot('13-admin-overview');
-await evaluate(`location.hash = '#/admin/users'`); await sleep(1500); await shot('14-admin-users');
-await evaluate(`location.hash = '#/admin/settings/sharing'`); await sleep(1500); await shot('15-admin-settings');
-await evaluate(`location.hash = '#/admin/activity'`); await sleep(1500); await shot('16-admin-activity');
+await goto(URL_ + '/' + '#/search/report'); await sleep(1800); await shot('09-search');
+await goto(URL_ + '/' + '#/shared'); await sleep(1500); await shot('10-shared-with-me');
+await goto(URL_ + '/' + '#/account/security'); await sleep(1500); await shot('11-account-security');
+await goto(URL_ + '/' + '#/account/apps'); await sleep(1500); await shot('12-webdav-apps');
+await goto(URL_ + '/' + '#/admin'); await sleep(1800); await shot('13-admin-overview');
+await goto(URL_ + '/' + '#/admin/users'); await sleep(1500); await shot('14-admin-users');
+await goto(URL_ + '/' + '#/admin/settings/sharing'); await sleep(1500); await shot('15-admin-settings');
+await goto(URL_ + '/' + '#/admin/activity'); await sleep(1500); await shot('16-admin-activity');
 
 // 9. Dark theme
 await evaluate(`(() => { localStorage.setItem('fr.prefs', JSON.stringify({ theme: 'dark' })); })()`);

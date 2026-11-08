@@ -47,6 +47,7 @@ final class Ctx
     public function name(): string
     {
         if ($this->rel === '') {
+            if ($this->root === 'home') return 'My Files';
             return $this->share['alias'] ?? ($this->link['title'] ?? ($this->owner['name'] ?: $this->owner['username']));
         }
         return Util::baseName($this->rel);
